@@ -1,0 +1,43 @@
+pipeline {
+  agent any
+
+  environment {
+    IMAGE_NAME = "monoitachi/hotwax-devops-backend"
+  }
+
+  stages {
+    stage("Checkout") {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage("Build") {
+      steps {
+        sh "docker build -t ${IMAGE_NAME}:latest -t ${IMAGE_NAME}:${BUILD_NUMBER} ./backend"
+      }
+    }
+
+    stage("Push") {
+      steps {
+        withCredentials([usernamePassword(credentialsId: "dockerhub", usernameVariable: "DOCKERHUB_USER", passwordVariable: "DOCKERHUB_PASS")]) {
+          sh "echo ${DOCKERHUB_PASS} | docker login -u ${DOCKERHUB_USER} --password-stdin"
+          sh "docker push ${IMAGE_NAME}:latest"
+          sh "docker push ${IMAGE_NAME}:${BUILD_NUMBER}"
+        }
+      }
+    }
+
+    stage("Deploy") {
+      steps {
+        sh "bash scripts/deploy.sh backend"
+      }
+    }
+  }
+
+  post {
+    always {
+      sh "docker logout || true"
+    }
+  }
+}
