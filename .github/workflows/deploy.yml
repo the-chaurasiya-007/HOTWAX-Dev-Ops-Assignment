@@ -1,0 +1,87 @@
+name: Deploy
+
+on:
+  push:
+    branches: ["main", "master"]
+
+env:
+  DEPLOY_DIR: /opt/demo-app
+  COMPOSE_FILE: docker-compose.yml
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      GHCR_USER: ${{ secrets.GHCR_USER }}
+      GHCR_PAT: ${{ secrets.GHCR_PAT }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set image base
+        run: echo "IMAGE_BASE=ghcr.io/the-chaurasiya-007/hotwax-dev-ops-assignment" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ env.GHCR_USER }}
+          password: ${{ env.GHCR_PAT }}
+
+      - name: Build and push backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ env.IMAGE_BASE }}-backend:latest
+            ${{ env.IMAGE_BASE }}-backend:${{ github.run_number }}
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ env.IMAGE_BASE }}-frontend:latest
+            ${{ env.IMAGE_BASE }}-frontend:${{ github.run_number }}
+
+      - name: Prepare deploy directory
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            sudo mkdir -p ${{ env.DEPLOY_DIR }}
+            sudo chown -R ${{ secrets.EC2_USER }}:${{ secrets.EC2_USER }} ${{ env.DEPLOY_DIR }}
+
+      - name: Upload compose file
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: ${{ env.COMPOSE_FILE }}
+          target: ${{ env.DEPLOY_DIR }}
+
+      - name: Deploy on EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: IMAGE_BASE,DEPLOY_DIR,COMPOSE_FILE,GHCR_USER,GHCR_PAT,EC2_HOST
+          script: |
+            echo "IMAGE_BASE=${{ env.IMAGE_BASE }}" > ${{ env.DEPLOY_DIR }}/.env
+            echo "VITE_API_BASE_URL=http://${{ secrets.EC2_HOST }}:8000" >> ${{ env.DEPLOY_DIR }}/.env
+            sudo docker login ghcr.io -u "$GHCR_USER" -p "$GHCR_PAT"
+            sudo docker-compose -f ${{ env.DEPLOY_DIR }}/${{ env.COMPOSE_FILE }} pull
+            sudo docker-compose -f ${{ env.DEPLOY_DIR }}/${{ env.COMPOSE_FILE }} up -d
+            sudo docker logout ghcr.io

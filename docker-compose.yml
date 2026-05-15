@@ -1,9 +1,9 @@
-name: demo-app
+name: hotwax-devops
 
 services:
   db:
     image: postgres:15
-    container_name: fastapi-react-db
+    container_name: hotwax-devops-db
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -19,9 +19,8 @@ services:
       - "5432:5432"
 
   backend:
-    build:
-      context: ./backend
-    container_name: fastapi-react-backend
+    image: ${IMAGE_BASE}-backend:latest
+    container_name: hotwax-devops-backend
     environment:
       DATABASE_URL: postgresql+psycopg2://postgres:postgres@db:5432/appdb
     depends_on:
@@ -32,16 +31,15 @@ services:
       - "8000:8000"
 
   frontend:
-    build:
-      context: ./frontend
-    container_name: fastapi-react-frontend
+    image: ${IMAGE_BASE}-frontend:latest
+    container_name: hotwax-devops-frontend
     environment:
-      VITE_API_BASE_URL: http://localhost:8000
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL}
     depends_on:
       - backend
     restart: unless-stopped
     ports:
-      - "5173:5173"
+      - "80:5173"
 
 volumes:
   db_data:
